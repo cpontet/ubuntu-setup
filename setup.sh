@@ -72,9 +72,14 @@ manage_bash_aliases() {
     }
     
     # Add our desired aliases
-    add_alias_if_not_exists "p" "pnpm"
     add_alias_if_not_exists "c" "clear"
+    add_alias_if_not_exists "p" "pnpm"
+    add_alias_if_not_exists "y" "yarn"
+    add_alias_if_not_exists "pod" "podman"
     add_alias_if_not_exists "docker" "podman"
+    add_alias_if_not_exists "ll" "ls -alF"
+    add_alias_if_not_exists "la" "ls -A"
+    add_alias_if_not_exists "l" "ls -CF"
     
     # Ensure .bashrc sources .bash_aliases (check if it's already there)
     if ! grep -q "\.bash_aliases" ~/.bashrc; then
@@ -164,11 +169,7 @@ shopt -s histappend
 
 # Create ~/repos directory if it doesn'\''t exist
 [ -d "$HOME/repos" ] || mkdir -p "$HOME/repos"
-
-# Change to ~/repos for interactive shells
-if [[ $- == *i* ]]; then
-    cd "$HOME/repos" || true
-fi'
+'
 
 # Update .bashrc with the bash completion configuration
 update_bashrc_section "AUTOMATED WSL SETUP" "$BASH_COMPLETION_CONFIG"
@@ -190,13 +191,11 @@ else
     echo "✅ Starship is already installed"
 fi
 
-# Add starship initialization to .bashrc if not already present
-if ! grep -q "starship init bash" ~/.bashrc; then
-    STARSHIP_CONFIG='eval "$(starship init bash)"'
-    update_bashrc_section "STARSHIP PROMPT" "$STARSHIP_CONFIG"
-else
-    echo "✅ Starship initialization already exists in ~/.bashrc"
-fi
+# Add starship initialization to .bashrc
+STARSHIP_CONFIG='# Starship Prompt Configuration
+eval "$(starship init bash)"'
+
+update_bashrc_section "STARSHIP PROMPT" "$STARSHIP_CONFIG"
 
 # Install NVM (Node Version Manager)
 print_status "Installing NVM (Node Version Manager)"
@@ -215,6 +214,14 @@ else
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 fi
+
+# Add NVM to .bashrc permanently
+NVM_CONFIG='# NVM (Node Version Manager) Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion'
+
+update_bashrc_section "NVM CONFIGURATION" "$NVM_CONFIG"
 
 # Install latest LTS Node.js using NVM
 print_status "Installing latest LTS Node.js via NVM"
@@ -257,6 +264,26 @@ else
         echo "✅ pnpm installed via npm"
     else
         echo "❌ Neither corepack nor npm available for pnpm installation"
+    fi
+fi
+
+# Install yarn using Corepack
+print_status "Installing yarn via Corepack"
+if command_exists corepack; then
+    corepack prepare yarn@latest --activate
+    echo "✅ yarn installed via Corepack"
+    
+    # Display yarn version if successful
+    if command_exists yarn; then
+        echo "📋 yarn version: $(yarn --version)"
+    fi
+else
+    echo "⚠️  Corepack not available, installing yarn via npm as fallback"
+    if command_exists npm; then
+        npm install -g yarn
+        echo "✅ yarn installed via npm"
+    else
+        echo "❌ Neither corepack nor npm available for yarn installation"
     fi
 fi
 
@@ -369,12 +396,6 @@ if command_exists wrangler; then
     echo "📋 Cloudflare CLI version: $(wrangler --version)"
 fi
 
-# Add Wrangler completion (if available)
-if command_exists wrangler; then
-    wrangler generate-completion bash > ~/.bash_completion.d/wrangler_completion 2>/dev/null || true
-    echo "✅ Cloudflare CLI completion configured"
-fi
-
 # Setup bash aliases
 print_status "Setting up bash aliases"
 manage_bash_aliases
@@ -430,6 +451,7 @@ echo "   ✓ NVM (Node Version Manager with completion)"
 echo "   ✓ Node.js LTS"
 echo "   ✓ Corepack"
 echo "   ✓ pnpm"
+echo "   ✓ yarn"
 echo "   ✓ Claude Code"
 echo "   ✓ GitHub CLI"
 echo "   ✓ Azure CLI"
