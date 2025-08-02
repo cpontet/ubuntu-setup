@@ -95,7 +95,7 @@ sudo apt update && sudo apt upgrade -y
 
 # Install essential packages including git
 print_status "Installing essential packages (git, bash-completion, etc.)"
-sudo apt install -y git bash-completion command-not-found curl wget
+sudo apt install -y git bash-completion command-not-found curl wget unzip
 
 # Configure bash completion in .bashrc
 print_status "Configuring enhanced bash completion in .bashrc"
