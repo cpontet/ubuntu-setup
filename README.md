@@ -9,6 +9,7 @@ Run the script
 ```sh
 git clone  https://github.com/cpontet/ubuntu-setup.git
 cd ubuntu-setup
+chmod 777 setup.sh
 ./setup.sh
 ```
 

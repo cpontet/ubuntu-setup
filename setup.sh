@@ -324,6 +324,57 @@ if command_exists az; then
     echo "✅ Azure CLI completion configured"
 fi
 
+# Install AWS CLI
+print_status "Installing AWS CLI"
+if ! command_exists aws; then
+    # Download and install AWS CLI v2
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip -q awscliv2.zip \
+    && sudo ./aws/install \
+    && rm -rf awscliv2.zip aws/
+    echo "✅ AWS CLI installed"
+else
+    echo "✅ AWS CLI is already installed"
+fi
+
+# Display AWS CLI version
+if command_exists aws; then
+    echo "📋 AWS CLI version: $(aws --version)"
+fi
+
+# Add AWS CLI completion
+if command_exists aws; then
+    aws_completer_path=$(which aws_completer 2>/dev/null)
+    if [ -n "$aws_completer_path" ]; then
+        echo "complete -C '$aws_completer_path' aws" > ~/.bash_completion.d/aws_completion
+        echo "✅ AWS CLI completion configured"
+    fi
+fi
+
+# Install Cloudflare CLI (Wrangler)
+print_status "Installing Cloudflare CLI (Wrangler)"
+if ! command_exists wrangler; then
+    if command_exists npm; then
+        npm install -g wrangler
+        echo "✅ Cloudflare CLI (Wrangler) installed"
+    else
+        echo "❌ npm not available. Cloudflare CLI installation skipped"
+    fi
+else
+    echo "✅ Cloudflare CLI (Wrangler) is already installed"
+fi
+
+# Display Wrangler version
+if command_exists wrangler; then
+    echo "📋 Cloudflare CLI version: $(wrangler --version)"
+fi
+
+# Add Wrangler completion (if available)
+if command_exists wrangler; then
+    wrangler generate-completion bash > ~/.bash_completion.d/wrangler_completion 2>/dev/null || true
+    echo "✅ Cloudflare CLI completion configured"
+fi
+
 # Setup bash aliases
 print_status "Setting up bash aliases"
 manage_bash_aliases
@@ -381,6 +432,9 @@ echo "   ✓ Corepack"
 echo "   ✓ pnpm"
 echo "   ✓ Claude Code"
 echo "   ✓ GitHub CLI"
+echo "   ✓ Azure CLI"
+echo "   ✓ AWS CLI"
+echo "   ✓ CloudFlare CLI (Wrangler)"
 echo "   ✓ Enhanced bash completion features"
 echo "   ✓ ~/repos directory (default directory for new terminals)"
 echo "   ✓ .bash_aliases with useful shortcuts"
