@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/cpontet/repos"
+      ],
+      "env": {}
+    },
+    "convex": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "convex@latest",
+        "mcp",
+        "start"
+      ],
+      "env": {}
+    },
+    "strapi": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bschauer/strapi-mcp-server@2.6.0"
+      ]
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}

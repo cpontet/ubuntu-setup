@@ -303,6 +303,27 @@ if command_exists gh; then
     echo "✅ GitHub CLI completion configured"
 fi
 
+# Install Azure CLI
+print_status "Installing Azure CLI"
+if ! command_exists az; then
+    # Add Microsoft repository and install Azure CLI
+    curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+    echo "✅ Azure CLI installed"
+else
+    echo "✅ Azure CLI is already installed"
+fi
+
+# Display Azure CLI version
+if command_exists az; then
+    echo "📋 Azure CLI version: $(az --version | head -n1)"
+fi
+
+# Add Azure CLI completion
+if command_exists az; then
+    az completion > ~/.bash_completion.d/az_completion 2>/dev/null || true
+    echo "✅ Azure CLI completion configured"
+fi
+
 # Setup bash aliases
 print_status "Setting up bash aliases"
 manage_bash_aliases
