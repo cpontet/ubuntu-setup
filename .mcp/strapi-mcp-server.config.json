@@ -1,6 +1,6 @@
 {
   "myserver": {
-    "api_url": "<your-strapi-url",
+    "api_url": "<your-strapi-url>",
     "api_key": "<your-strapi-api-token>",
     "version": "4.25.23"
   }
