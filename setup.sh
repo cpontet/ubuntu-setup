@@ -291,7 +291,7 @@ fi
 print_status "Installing Claude Code globally via npm"
 if command_exists npm; then
     if ! command_exists claude-code; then
-        npm install -g claude-code
+        npm install -g @anthropic-ai/claude-code
         echo "✅ Claude Code installed globally"
     else
         echo "✅ Claude Code is already installed"
