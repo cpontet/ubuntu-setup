@@ -714,6 +714,101 @@ install_dotnet() {
     sudo apt install -y dotnet-sdk-10.0
 }
 
+install_go() {
+    print_status "Installing Go toolchain (latest from go.dev)"
+    local latest arch tarball install_dir="/usr/local/go"
+    latest=$(curl -fsSL "https://go.dev/dl/?mode=json" | jq -r '.[0].version')
+    if [ -z "$latest" ] || [ "$latest" = "null" ]; then
+        echo "  Could not determine latest Go version, skipping"
+        return
+    fi
+    if command_exists go && [ "$(go version | awk '{print $3}')" = "$latest" ]; then
+        echo "  Go $latest is already installed"
+    else
+        arch=$(dpkg --print-architecture)
+        tarball="/tmp/${latest}.linux-${arch}.tar.gz"
+        curl -fsSL -o "$tarball" "https://go.dev/dl/${latest}.linux-${arch}.tar.gz"
+        sudo rm -rf "$install_dir"
+        sudo tar -C /usr/local -xzf "$tarball"
+        rm -f "$tarball"
+    fi
+
+    GO_CONFIG='# Go toolchain
+export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"'
+    update_bashrc_section "GO" "$GO_CONFIG"
+    export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+}
+
+install_git_extras() {
+    print_status "Installing git-lfs and pre-commit"
+
+    if ! command_exists git-lfs; then
+        sudo apt install -y git-lfs
+        git lfs install
+    else
+        echo "  git-lfs is already installed"
+    fi
+
+    if command_exists pre-commit; then
+        echo "  pre-commit is already installed"
+    elif command_exists uv; then
+        uv tool install pre-commit
+    else
+        echo "  uv not found, cannot install pre-commit"
+    fi
+}
+
+install_k8s_extras() {
+    print_status "Installing kubectx, kubens, and stern"
+
+    # kubectx package includes kubens as a symlink
+    sudo apt install -y kubectx
+
+    if command_exists stern; then
+        echo "  stern is already installed"
+        return
+    fi
+
+    local version arch tarball
+    version=$(curl -fsSL "https://api.github.com/repos/stern/stern/releases/latest" \
+        | jq -r '.tag_name' | sed 's/^v//')
+    if [ -z "$version" ]; then
+        echo "  Could not determine latest stern version, skipping"
+        return
+    fi
+    arch=$(dpkg --print-architecture)
+    tarball="/tmp/stern.tar.gz"
+    curl -fsSL -o "$tarball" \
+        "https://github.com/stern/stern/releases/download/v${version}/stern_${version}_linux_${arch}.tar.gz"
+    sudo tar -xzf "$tarball" -C /usr/local/bin stern
+    rm -f "$tarball"
+}
+
+install_mkcert() {
+    print_status "Installing mkcert (local HTTPS CA)"
+    if command_exists mkcert; then
+        echo "  mkcert is already installed"
+        return
+    fi
+    sudo apt install -y mkcert
+}
+
+install_just() {
+    print_status "Installing just (modern task runner)"
+    if command_exists just; then
+        echo "  just is already installed"
+        return
+    fi
+    sudo apt install -y just
+}
+
+install_cli_qol() {
+    print_status "Installing btop, tldr, hyperfine"
+    sudo apt install -y btop tldr hyperfine
+    # Seed tldr cache (quiet — failure here is non-fatal)
+    command_exists tldr && tldr --update >/dev/null 2>&1 || true
+}
+
 # ==============================================================================
 # NATIVE UBUNTU DESKTOP FUNCTIONS (not WSL)
 # ==============================================================================
@@ -744,6 +839,22 @@ install_edge() {
     else
         echo "  Microsoft Edge is already installed"
     fi
+}
+
+install_mullvad_browser() {
+    print_status "Installing Mullvad Browser"
+    if command_exists mullvad-browser; then
+        echo "  Mullvad Browser is already installed"
+        return
+    fi
+    if [ ! -f /usr/share/keyrings/mullvad-keyring.asc ]; then
+        sudo curl -fsSLo /usr/share/keyrings/mullvad-keyring.asc \
+            https://repository.mullvad.net/deb/mullvad-keyring.asc
+    fi
+    echo "deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch=$(dpkg --print-architecture)] https://repository.mullvad.net/deb/stable stable main" \
+        | sudo tee /etc/apt/sources.list.d/mullvad.list > /dev/null
+    sudo apt update
+    sudo apt install -y mullvad-browser
 }
 
 install_vscode() {
@@ -1011,6 +1122,12 @@ COMMON_STEPS=(
     install_git_polish
     install_rust
     install_dotnet
+    install_go
+    install_git_extras
+    install_k8s_extras
+    install_mkcert
+    install_just
+    install_cli_qol
     install_nerd_fonts
     setup_bash_completions
     manage_bash_aliases
@@ -1030,6 +1147,7 @@ if ! is_wsl; then
     DESKTOP_STEPS=(
         install_brave
         install_edge
+        install_mullvad_browser
         install_vscode
         install_gnome_extensions
         install_flatpak
@@ -1085,8 +1203,14 @@ echo "   ✓ jdtls (Eclipse Java LSP)"
 echo "   ✓ Modern CLI: ripgrep, fd, bat, eza, fzf, zoxide"
 echo "   ✓ tmux (terminal multiplexer)"
 echo "   ✓ git-delta + lazygit (git diff/TUI)"
+echo "   ✓ git-lfs + pre-commit (git workflow)"
 echo "   ✓ Rust toolchain (rustup, cargo, rustc)"
+echo "   ✓ Go toolchain (latest from go.dev)"
 echo "   ✓ .NET SDK 10"
+echo "   ✓ kubectx + kubens + stern (K8s QoL)"
+echo "   ✓ mkcert (local HTTPS CA)"
+echo "   ✓ just (task runner)"
+echo "   ✓ btop, tldr, hyperfine (CLI QoL)"
 echo "   ✓ Nerd Fonts (FiraCode, JetBrainsMono, Meslo, Hack — with icons)"
 echo "   ✓ Enhanced bash completion for all tools"
 echo "   ✓ Bash aliases (p=pnpm, y=yarn, c=clear, g=git, k=kubectl, pod/docker=podman, bat, fd, lg)"
@@ -1097,6 +1221,7 @@ if ! is_wsl; then
     echo "🖥️  Desktop components:"
     echo "   ✓ Brave browser"
     echo "   ✓ Microsoft Edge"
+    echo "   ✓ Mullvad Browser"
     echo "   ✓ Visual Studio Code"
     echo "   ✓ GNOME Tweaks + Extension Manager"
     echo "   ✓ Dash to Panel + GSConnect extensions"
