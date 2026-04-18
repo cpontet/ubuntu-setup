@@ -79,6 +79,10 @@ manage_bash_aliases() {
     add_alias_if_not_exists "ll" "ls -alF"
     add_alias_if_not_exists "la" "ls -A"
     add_alias_if_not_exists "l" "ls -CF"
+    add_alias_if_not_exists "repos" "cd ~/repos"
+    add_alias_if_not_exists ".." "cd .."
+    add_alias_if_not_exists "..." "cd ../.."
+    add_alias_if_not_exists "...." "cd ../../.."
 
     # Ensure .bashrc sources .bash_aliases
     if ! grep -q "\.bash_aliases" ~/.bashrc; then
@@ -210,12 +214,24 @@ install_gh() {
 
 install_glab() {
     print_status "Installing GitLab CLI"
-    if ! command_exists glab; then
-        # Install from the official GitLab apt repository
-        curl -fsSL "https://gitlab.com/gitlab-org/cli/-/raw/main/scripts/install.sh" | sudo sh
-    else
+    if command_exists glab; then
         echo "  GitLab CLI is already installed"
+        return
     fi
+
+    local arch deb_url tmp_deb
+    arch=$(dpkg --print-architecture)
+    deb_url=$(curl -fsSL "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest" \
+        | jq -r --arg a "$arch" '.assets.links[] | select(.name | test("linux_"+$a+"\\.deb$")) | .url' \
+        | head -1)
+    if [ -z "$deb_url" ]; then
+        echo "  Could not find glab .deb for architecture $arch, skipping"
+        return
+    fi
+    tmp_deb=$(mktemp --suffix=.deb)
+    curl -fsSL -o "$tmp_deb" "$deb_url"
+    sudo dpkg -i "$tmp_deb" || sudo apt-get install -f -y
+    rm -f "$tmp_deb"
 }
 
 install_az() {
@@ -690,7 +706,7 @@ install_gtk_theme() {
     sudo apt install -y sassc libglib2.0-dev-bin 2>/dev/null || true
 
     if [ -d "$repo_dir" ]; then
-        rm -rf "$repo_dir"
+        sudo rm -rf "$repo_dir"
     fi
 
     git clone --depth 1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$repo_dir"
@@ -701,7 +717,7 @@ install_gtk_theme() {
     # Also install the icon theme
     local icon_repo="/tmp/WhiteSur-icon-theme"
     if [ ! -d "$HOME/.local/share/icons/WhiteSur" ]; then
-        if [ -d "$icon_repo" ]; then rm -rf "$icon_repo"; fi
+        if [ -d "$icon_repo" ]; then sudo rm -rf "$icon_repo"; fi
         git clone --depth 1 https://github.com/vinceliuice/WhiteSur-icon-theme.git "$icon_repo"
         cd "$icon_repo"
         ./install.sh
