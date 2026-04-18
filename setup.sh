@@ -438,6 +438,113 @@ install_uv() {
     fi
 }
 
+install_bun() {
+    print_status "Installing Bun (JavaScript runtime & package manager)"
+    if ! command_exists bun; then
+        curl -fsSL https://bun.sh/install | bash
+    else
+        echo "  Bun is already installed ($(bun --version 2>/dev/null || echo 'version unknown'))"
+    fi
+
+    BUN_CONFIG='# Bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+[ -s "$BUN_INSTALL/_bun" ] && source "$BUN_INSTALL/_bun"'
+    update_bashrc_section "BUN" "$BUN_CONFIG"
+
+    # Make bun available in the current shell
+    export BUN_INSTALL="$HOME/.bun"
+    export PATH="$BUN_INSTALL/bin:$PATH"
+}
+
+install_sdkman() {
+    print_status "Installing SDKMAN (JVM version manager)"
+    if [ -d "$HOME/.sdkman" ]; then
+        echo "  SDKMAN is already installed"
+    else
+        curl -s "https://get.sdkman.io?rcupdate=false" | bash
+    fi
+
+    SDKMAN_CONFIG='# SDKMAN
+export SDKMAN_DIR="$HOME/.sdkman"
+[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && source "$SDKMAN_DIR/bin/sdkman-init.sh"'
+    update_bashrc_section "SDKMAN" "$SDKMAN_CONFIG"
+
+    # Make sdk available in the current shell
+    export SDKMAN_DIR="$HOME/.sdkman"
+    # shellcheck source=/dev/null
+    [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
+}
+
+install_jdk() {
+    local required_major=25
+    local sdkman_jdk_id="25-tem"
+    print_status "Installing OpenJDK ${required_major} (Temurin via SDKMAN)"
+
+    if command_exists java; then
+        local java_ver
+        java_ver=$(java -version 2>&1 | head -1 | grep -oP '\d+' | head -1 || echo "0")
+        if [ "$java_ver" -ge "$required_major" ]; then
+            echo "  JDK $java_ver is already installed"
+            return
+        fi
+    fi
+
+    if [ ! -d "$HOME/.sdkman" ]; then
+        echo "  SDKMAN not found, skipping JDK install"
+        return
+    fi
+
+    export SDKMAN_DIR="$HOME/.sdkman"
+    # shellcheck source=/dev/null
+    [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
+
+    if command_exists sdk; then
+        sdk install java "$sdkman_jdk_id" || true
+    else
+        echo "  sdk command not available, restart terminal and run: sdk install java $sdkman_jdk_id"
+    fi
+}
+
+install_typescript_lsp() {
+    print_status "Installing typescript-language-server (TypeScript LSP for Claude Code)"
+    if command_exists typescript-language-server; then
+        echo "  typescript-language-server is already installed"
+        return
+    fi
+
+    if command_exists bun; then
+        bun install -g typescript-language-server typescript
+    elif command_exists npm; then
+        npm install -g typescript-language-server typescript
+    else
+        echo "  Neither bun nor npm available, skipping"
+    fi
+}
+
+install_jdtls() {
+    local jdtls_version="1.57.0"
+    local jdtls_build="202602261110"
+    local jdtls_dir="$HOME/jdtls"
+    print_status "Installing jdtls ${jdtls_version} (Java LSP for Claude Code)"
+
+    if command_exists jdtls; then
+        echo "  jdtls is already installed"
+        return
+    fi
+
+    local tarball="jdt-language-server-${jdtls_version}-${jdtls_build}.tar.gz"
+    local url="https://download.eclipse.org/jdtls/milestones/${jdtls_version}/${tarball}"
+
+    curl -fSL -o "/tmp/${tarball}" "${url}"
+    rm -rf "$jdtls_dir"
+    mkdir -p "$jdtls_dir"
+    tar xzf "/tmp/${tarball}" -C "$jdtls_dir"
+    rm -f "/tmp/${tarball}"
+
+    sudo ln -sf "$jdtls_dir/bin/jdtls" /usr/local/bin/jdtls
+}
+
 install_nerd_fonts() {
     print_status "Installing Nerd Fonts (developer fonts with icons)"
     local fonts_dir="$HOME/.local/share/fonts"
@@ -758,6 +865,11 @@ install_k9s
 install_helm
 install_ollama
 install_uv
+install_bun
+install_sdkman
+install_jdk
+install_typescript_lsp
+install_jdtls
 install_nerd_fonts
 setup_bash_completions
 manage_bash_aliases
@@ -816,6 +928,10 @@ echo "   ✓ kubectl + k9s (Kubernetes CLI + terminal UI)"
 echo "   ✓ Helm (Kubernetes package manager)"
 echo "   ✓ Ollama (local LLMs)"
 echo "   ✓ uv (fast Python package manager)"
+echo "   ✓ Bun (JavaScript runtime & package manager)"
+echo "   ✓ SDKMAN + OpenJDK 25 (Temurin)"
+echo "   ✓ typescript-language-server (TypeScript LSP)"
+echo "   ✓ jdtls (Eclipse Java LSP)"
 echo "   ✓ Nerd Fonts (FiraCode, JetBrainsMono, Meslo, Hack — with icons)"
 echo "   ✓ Enhanced bash completion for all tools"
 echo "   ✓ Bash aliases (p=pnpm, y=yarn, c=clear, g=git, k=kubectl, pod/docker=podman)"
