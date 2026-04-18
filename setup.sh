@@ -5,11 +5,27 @@
 # and optionally a Zorin OS-like desktop experience on native Ubuntu.
 # IDEMPOTENT: Safe to run multiple times without duplicating configurations
 
-set -e  # Exit on any error
+set -o pipefail  # pipe fails if any command in it fails
 
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
+
+FAILED_STEPS=()
+
+# Run a step and record failure without aborting the whole script.
+# The step name is the first argument (typically the function name).
+run_step() {
+    local step="$1"
+    shift
+    "$step" "$@"
+    local exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+        FAILED_STEPS+=("$step (exit $exit_code)")
+        echo "  ⚠️  Step '$step' failed with exit $exit_code — continuing"
+    fi
+    return 0
+}
 
 print_status() {
     echo -e "\n📦 $1..."
@@ -864,32 +880,37 @@ fi
 echo "=================================================="
 
 # --- Common (both WSL and native) ---
-install_system_packages
-install_podman
-install_starship
-install_nvm
-install_node_lts
-install_claude_code
-install_gh
-install_glab
-install_az
-install_aws
-install_wrangler
-install_direnv
-install_kubectl
-install_k9s
-install_helm
-install_ollama
-install_uv
-install_bun
-install_sdkman
-install_jdk
-install_typescript_lsp
-install_jdtls
-install_nerd_fonts
-setup_bash_completions
-manage_bash_aliases
-setup_bashrc
+COMMON_STEPS=(
+    install_system_packages
+    install_podman
+    install_starship
+    install_nvm
+    install_node_lts
+    install_claude_code
+    install_gh
+    install_glab
+    install_az
+    install_aws
+    install_wrangler
+    install_direnv
+    install_kubectl
+    install_k9s
+    install_helm
+    install_ollama
+    install_uv
+    install_bun
+    install_sdkman
+    install_jdk
+    install_typescript_lsp
+    install_jdtls
+    install_nerd_fonts
+    setup_bash_completions
+    manage_bash_aliases
+    setup_bashrc
+)
+for step in "${COMMON_STEPS[@]}"; do
+    run_step "$step"
+done
 
 # --- Native Ubuntu Desktop only ---
 if ! is_wsl; then
@@ -898,24 +919,29 @@ if ! is_wsl; then
     echo "🖥️  Installing desktop applications..."
     echo "=================================================="
 
-    install_brave
-    install_edge
-    install_vscode
-    install_gnome_extensions
-    install_flatpak
-    install_desktop_apps
-    install_gtk_theme
-    setup_gnome_terminal_font
-    setup_keyboard_belgian
-    setup_grub_resolution
-    install_grub_theme
+    DESKTOP_STEPS=(
+        install_brave
+        install_edge
+        install_vscode
+        install_gnome_extensions
+        install_flatpak
+        install_desktop_apps
+        install_gtk_theme
+        setup_gnome_terminal_font
+        setup_keyboard_belgian
+        setup_grub_resolution
+        install_grub_theme
+    )
+    for step in "${DESKTOP_STEPS[@]}"; do
+        run_step "$step"
+    done
 
     if is_surface; then
         echo ""
         echo "=================================================="
         echo "💻 Microsoft Surface detected ($(cat /sys/class/dmi/id/product_name 2>/dev/null))"
         echo "=================================================="
-        install_surface_kernel
+        run_step install_surface_kernel
     fi
 fi
 
@@ -988,5 +1014,19 @@ echo ""
 echo "🔄 Next steps:"
 echo "   1. Restart your terminal or run: source ~/.bashrc"
 echo "   2. Verify: claude --version, gh --version, glab --version"
+
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+    echo ""
+    echo "=================================================="
+    echo "⚠️  ${#FAILED_STEPS[@]} step(s) reported failure:"
+    echo "=================================================="
+    for step in "${FAILED_STEPS[@]}"; do
+        echo "   - $step"
+    done
+    echo ""
+    echo "   Re-run the script to retry, or invoke the individual function"
+    echo "   (e.g. 'bash -c \"source ./setup.sh; install_glab\"') to debug."
+fi
+
 echo ""
 echo "📋 Script completed at: $(date)"
