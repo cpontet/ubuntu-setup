@@ -99,6 +99,10 @@ manage_bash_aliases() {
     add_alias_if_not_exists ".." "cd .."
     add_alias_if_not_exists "..." "cd ../.."
     add_alias_if_not_exists "...." "cd ../../.."
+    # Ubuntu ships bat/fd as batcat/fdfind; alias to the conventional names
+    add_alias_if_not_exists "bat" "batcat"
+    add_alias_if_not_exists "fd" "fdfind"
+    add_alias_if_not_exists "lg" "lazygit"
 
     # Ensure .bashrc sources .bash_aliases
     if ! grep -q "\.bash_aliases" ~/.bashrc; then
@@ -611,6 +615,105 @@ install_nerd_fonts() {
     fi
 }
 
+install_modern_cli() {
+    print_status "Installing modern CLI bundle (ripgrep, fd, bat, eza, fzf, zoxide)"
+    sudo apt install -y ripgrep fd-find bat eza fzf zoxide
+
+    MODERN_CLI_CONFIG='# fzf shell integration (key bindings + completion)
+if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
+    . /usr/share/doc/fzf/examples/key-bindings.bash
+fi
+if [ -f /usr/share/bash-completion/completions/fzf ]; then
+    . /usr/share/bash-completion/completions/fzf
+fi
+# zoxide (smarter cd): use `z <dir>` or `zi` for interactive
+command -v zoxide >/dev/null && eval "$(zoxide init bash)"'
+    update_bashrc_section "MODERN CLI" "$MODERN_CLI_CONFIG"
+}
+
+install_tmux() {
+    print_status "Installing tmux"
+    if ! command_exists tmux; then
+        sudo apt install -y tmux
+    else
+        echo "  tmux is already installed ($(tmux -V))"
+    fi
+}
+
+install_git_polish() {
+    print_status "Installing git-delta and lazygit"
+
+    # git-delta (apt)
+    if ! command_exists delta; then
+        sudo apt install -y git-delta
+    else
+        echo "  git-delta is already installed"
+    fi
+
+    # lazygit (GitHub releases — not in apt)
+    if ! command_exists lazygit; then
+        local lg_version arch tarball
+        lg_version=$(curl -fsSL "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
+            | grep -oP '"tag_name":\s*"v\K[^"]+')
+        if [ -z "$lg_version" ]; then
+            echo "  Could not determine latest lazygit version, skipping"
+        else
+            arch=$(dpkg --print-architecture)
+            case "$arch" in
+                amd64) arch=x86_64 ;;
+                arm64) arch=arm64 ;;
+                *) echo "  Unsupported arch for lazygit: $arch"; arch="" ;;
+            esac
+            if [ -n "$arch" ]; then
+                tarball="/tmp/lazygit_${lg_version}_Linux_${arch}.tar.gz"
+                curl -fsSL -o "$tarball" \
+                    "https://github.com/jesseduffield/lazygit/releases/download/v${lg_version}/lazygit_${lg_version}_Linux_${arch}.tar.gz"
+                sudo tar -xzf "$tarball" -C /usr/local/bin lazygit
+                rm -f "$tarball"
+            fi
+        fi
+    else
+        echo "  lazygit is already installed ($(lazygit --version 2>/dev/null | head -1))"
+    fi
+
+    # Wire delta into git (only if delta is actually installed)
+    if command_exists delta; then
+        git config --global core.pager delta
+        git config --global interactive.diffFilter "delta --color-only"
+        git config --global delta.navigate true
+        git config --global delta.line-numbers true
+        git config --global delta.side-by-side true
+        git config --global merge.conflictstyle zdiff3
+    fi
+}
+
+install_rust() {
+    print_status "Installing Rust toolchain (rustup)"
+    if command_exists rustc && command_exists cargo; then
+        echo "  Rust is already installed ($(rustc --version))"
+    else
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --no-modify-path
+    fi
+
+    RUST_CONFIG='# Rust (cargo) environment
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"'
+    update_bashrc_section "RUST" "$RUST_CONFIG"
+
+    # Make cargo available in the current shell
+    # shellcheck source=/dev/null
+    [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+}
+
+install_dotnet() {
+    print_status "Installing .NET SDK 10"
+    if command_exists dotnet && dotnet --list-sdks 2>/dev/null | grep -q "^10\."; then
+        echo "  .NET SDK 10 is already installed"
+        return
+    fi
+    sudo apt install -y dotnet-sdk-10.0
+}
+
 # ==============================================================================
 # NATIVE UBUNTU DESKTOP FUNCTIONS (not WSL)
 # ==============================================================================
@@ -903,6 +1006,11 @@ COMMON_STEPS=(
     install_jdk
     install_typescript_lsp
     install_jdtls
+    install_modern_cli
+    install_tmux
+    install_git_polish
+    install_rust
+    install_dotnet
     install_nerd_fonts
     setup_bash_completions
     manage_bash_aliases
@@ -974,9 +1082,14 @@ echo "   ✓ Bun (JavaScript runtime & package manager)"
 echo "   ✓ SDKMAN + OpenJDK 25 (Temurin)"
 echo "   ✓ typescript-language-server (TypeScript LSP)"
 echo "   ✓ jdtls (Eclipse Java LSP)"
+echo "   ✓ Modern CLI: ripgrep, fd, bat, eza, fzf, zoxide"
+echo "   ✓ tmux (terminal multiplexer)"
+echo "   ✓ git-delta + lazygit (git diff/TUI)"
+echo "   ✓ Rust toolchain (rustup, cargo, rustc)"
+echo "   ✓ .NET SDK 10"
 echo "   ✓ Nerd Fonts (FiraCode, JetBrainsMono, Meslo, Hack — with icons)"
 echo "   ✓ Enhanced bash completion for all tools"
-echo "   ✓ Bash aliases (p=pnpm, y=yarn, c=clear, g=git, k=kubectl, pod/docker=podman)"
+echo "   ✓ Bash aliases (p=pnpm, y=yarn, c=clear, g=git, k=kubectl, pod/docker=podman, bat, fd, lg)"
 echo "   ✓ ~/repos workspace directory"
 
 if ! is_wsl; then
