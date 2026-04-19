@@ -288,6 +288,25 @@ install_wrangler() {
     fi
 }
 
+install_clever_tools() {
+    print_status "Installing Clever Cloud CLI (clever-tools)"
+    if command_exists clever; then
+        echo "  Clever Cloud CLI is already installed ($(clever version 2>/dev/null | head -1 || echo 'version unknown'))"
+        return
+    fi
+
+    if [ ! -f /usr/share/keyrings/cc-nexus-deb.gpg ]; then
+        curl -fsSL https://clever-tools.clever-cloud.com/gpg/cc-nexus-deb.public.gpg.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/cc-nexus-deb.gpg
+    fi
+    if [ ! -f /etc/apt/sources.list.d/clever-tools.list ]; then
+        echo "deb [signed-by=/usr/share/keyrings/cc-nexus-deb.gpg] https://nexus.clever-cloud.com/repository/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/clever-tools.list > /dev/null
+        sudo apt update
+    fi
+    sudo apt install -y clever-tools
+}
+
 setup_bash_completions() {
     print_status "Setting up bash completions"
     mkdir -p ~/.bash_completion.d
@@ -323,6 +342,11 @@ setup_bash_completions() {
     # Podman completion
     if command_exists podman; then
         podman completion bash > ~/.bash_completion.d/podman_completion 2>/dev/null || true
+    fi
+
+    # Clever Cloud CLI completion
+    if command_exists clever; then
+        clever --bash-autocomplete-script "$(command -v clever)" > ~/.bash_completion.d/clever_completion 2>/dev/null || true
     fi
 
     # Git alias completion
@@ -923,6 +947,42 @@ install_desktop_apps() {
     flatpak install -y flathub org.shotcut.Shotcut 2>/dev/null || true
 }
 
+install_communication_apps() {
+    print_status "Installing Discord, Slack, and WhatsApp (via Flatpak)"
+    if ! command_exists flatpak; then
+        echo "  Flatpak not available, skipping"
+        return
+    fi
+    flatpak install -y flathub com.discordapp.Discord 2>/dev/null || echo "  Discord install failed"
+    flatpak install -y flathub com.slack.Slack 2>/dev/null || echo "  Slack install failed"
+    flatpak install -y flathub io.github.mimbrero.WhatsAppDesktop 2>/dev/null || echo "  WhatsApp install failed"
+}
+
+install_claude_desktop() {
+    print_status "Installing Claude Desktop (aaddrick/claude-desktop-debian)"
+    if dpkg -l claude-desktop 2>/dev/null | grep -q '^ii'; then
+        echo "  Claude Desktop is already installed"
+        return
+    fi
+
+    # Build deps documented upstream: 7z, wget, wrestool/icotool (icoutils), convert (imagemagick)
+    sudo apt install -y p7zip-full wget icoutils imagemagick
+
+    local repo=/tmp/claude-desktop-debian
+    [ -d "$repo" ] && rm -rf "$repo"
+    git clone --depth 1 https://github.com/aaddrick/claude-desktop-debian.git "$repo"
+    (cd "$repo" && ./build.sh) || { echo "  build.sh failed"; return 1; }
+
+    local deb
+    deb=$(find "$repo" -name 'claude-desktop_*.deb' -print -quit)
+    if [ -z "$deb" ]; then
+        echo "  Could not find built .deb in $repo"
+        return 1
+    fi
+    sudo dpkg -i "$deb" || sudo apt-get install -f -y
+    rm -rf "$repo"
+}
+
 install_gtk_theme() {
     print_status "Installing WhiteSur GTK theme (macOS-like appearance)"
     local theme_dir="$HOME/.local/share/themes"
@@ -1106,6 +1166,7 @@ COMMON_STEPS=(
     install_az
     install_aws
     install_wrangler
+    install_clever_tools
     install_direnv
     install_kubectl
     install_k9s
@@ -1152,6 +1213,8 @@ if ! is_wsl; then
         install_gnome_extensions
         install_flatpak
         install_desktop_apps
+        install_communication_apps
+        install_claude_desktop
         install_gtk_theme
         setup_gnome_terminal_font
         setup_keyboard_belgian
@@ -1191,6 +1254,7 @@ echo "   ✓ GitLab CLI (glab)"
 echo "   ✓ Azure CLI"
 echo "   ✓ AWS CLI"
 echo "   ✓ Cloudflare CLI (Wrangler)"
+echo "   ✓ Clever Cloud CLI (clever-tools)"
 echo "   ✓ direnv (auto-load .envrc per project)"
 echo "   ✓ kubectl + k9s (Kubernetes CLI + terminal UI)"
 echo "   ✓ Helm (Kubernetes package manager)"
@@ -1227,6 +1291,8 @@ if ! is_wsl; then
     echo "   ✓ Dash to Panel + GSConnect extensions"
     echo "   ✓ Flatpak + Flathub"
     echo "   ✓ VLC, GIMP, Evince (PDF), Shotcut (video), Sound Recorder"
+    echo "   ✓ Discord, Slack, WhatsApp (Flatpak)"
+    echo "   ✓ Claude Desktop (aaddrick .deb build)"
     echo "   ✓ WhiteSur GTK + icon theme"
     echo "   ✓ GNOME Terminal default font: FiraCode Nerd Font Mono 12"
     echo "   ✓ Belgian keyboard layout (console + X11 + LUKS prompt)"
