@@ -91,21 +91,20 @@ Skipped under WSL.
 
 **Browsers, editor & terminal**
 - Brave browser
-- Microsoft Edge
+- Microsoft Edge — the script also writes a launcher per Edge profile (`cpontet`, `AP`, `OP`) into `~/.local/share/applications/`. `cpontet` and `AP` use the profile's own avatar; `OP` uses a European flag. If profiles don't exist yet, launch Edge once and sign in, then re-run the script.
 - Mullvad Browser
 - Visual Studio Code
 - Alacritty (GPU-accelerated terminal) — **set as the system default terminal**; managed config at `~/.config/alacritty/alacritty.toml` uses `FiraCode Nerd Font Mono` 12 and auto-launches `tmux new-session -A -s main`, so every new window attaches to the same tmux session. `Ctrl+Alt+T` is rebound to Alacritty via a GNOME custom keybinding, and `update-alternatives` points `x-terminal-emulator` at Alacritty for any app that honors it.
 
 **GNOME polish**
-- GNOME Tweaks + Extension Manager
-- Extensions enabled: Dash to Panel, User Themes, GSConnect
 - WhiteSur GTK theme + matching icon theme (macOS-like look)
+- Desktop wallpaper: play14 logo (white variant for light mode, black variant for dark mode), scaled on black letterbox fill so the 3.19:1 logo isn't cropped on 16:9 displays
 - GNOME Terminal default font set to `FiraCode Nerd Font Mono 12`
 
 **Apps**
 - Flatpak + Flathub
 - Media: VLC, GIMP, Evince (PDF), GNOME Sound Recorder, GParted, Shotcut (Flatpak)
-- Communication: Discord (Flatpak), Slack (Flatpak), WhatsApp for Linux (`himelrana` apt mirror)
+- Communication: Discord (Flatpak), Slack (Flatpak), WhatsApp for Linux (Flatpak — `com.github.eneshecan.WhatsAppForLinux`)
 - Cloud sync & meetings: Infomaniak kDrive, kChat, kMeet (official AppImages + `.desktop` entries), OneDriver (Microsoft OneDrive FUSE client — on-demand file access)
 - AI: Claude Desktop (built locally from `aaddrick/claude-desktop-debian`)
 
@@ -149,16 +148,13 @@ Only runs if `/sys/class/dmi/id` reports a Microsoft Surface device.
 
 ### Native Desktop only
 
-1. **Install extra GNOME extensions** that apt doesn't ship — open Extension Manager and install:
-   - ArcMenu
-   - Blur my Shell
-2. **Activate the WhiteSur theme** — open GNOME Tweaks → Appearance:
+1. **Activate the WhiteSur theme** — open GNOME Tweaks → Appearance:
    - Applications: `WhiteSur-Dark` (or `WhiteSur-Light`)
    - Shell: same
    - Icons: `WhiteSur`
-3. **Log out / back in** so GRUB resolution, keyboard layout, GNOME extensions, and the Alacritty `Ctrl+Alt+T` custom keybinding all take effect.
-4. **Read the Alacritty + tmux notes** (see below) — your terminal now auto-launches tmux; the section covers how to use it and how to opt out.
-5. **Set up OneDriver** (see below) — it's installed but needs a one-time account link.
+2. **Log out / back in** so GRUB resolution, keyboard layout, and the Alacritty `Ctrl+Alt+T` custom keybinding all take effect.
+3. **Read the Alacritty + tmux notes** (see below) — your terminal now auto-launches tmux; the section covers how to use it and how to opt out.
+4. **Set up OneDriver** (see below) — it's installed but needs a one-time account link.
 
 ### Alacritty + tmux
 

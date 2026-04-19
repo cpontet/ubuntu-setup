@@ -958,6 +958,86 @@ install_edge() {
     fi
 }
 
+# Creates a .desktop launcher per Edge profile (cpontet, AP, OP).
+# Reads Edge's `Local State` to map profile directories to display names, so it
+# keeps working regardless of profile creation order (Default/Profile 1/2/...).
+# Profile avatars are copied out of the profile dir; OP gets a Europe flag icon.
+setup_edge_profile_shortcuts() {
+    print_status "Creating Microsoft Edge per-profile shortcuts"
+
+    if ! command_exists microsoft-edge; then
+        echo "  Microsoft Edge not installed, skipping"
+        return
+    fi
+
+    local edge_config="$HOME/.config/microsoft-edge"
+    local local_state="$edge_config/Local State"
+    if [ ! -f "$local_state" ]; then
+        echo "  No Edge profile state yet — launch Edge and sign in, then re-run"
+        return
+    fi
+
+    local app_dir="$HOME/.local/share/applications"
+    local icon_dir="$HOME/.local/share/icons/edge-profiles"
+    mkdir -p "$app_dir" "$icon_dir"
+
+    local flag_icon="$icon_dir/flag-europe.jpg"
+    if [ ! -f "$flag_icon" ]; then
+        curl -fsSL --max-time 60 -o "$flag_icon" \
+            "https://www.countryflags.com/wp-content/uploads/europe-flag-jpg-xl.jpg" \
+            || { echo "  Failed to download Europe flag icon"; rm -f "$flag_icon"; }
+    fi
+
+    local entries
+    entries=$(jq -r '.profile.info_cache | to_entries[] | "\(.key)\t\(.value.name)"' "$local_state")
+
+    local created=0
+    while IFS=$'\t' read -r dir name; do
+        [ -z "$dir" ] || [ -z "$name" ] && continue
+
+        local slug
+        slug=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/-\+/-/g; s/^-//; s/-$//')
+        [ -z "$slug" ] && slug="profile"
+
+        local icon_path
+        if [ "$name" = "OP" ] && [ -f "$flag_icon" ]; then
+            icon_path="$flag_icon"
+        else
+            local avatar="$edge_config/$dir/Edge Profile Picture.png"
+            if [ -f "$avatar" ]; then
+                icon_path="$icon_dir/edge-${slug}.png"
+                cp "$avatar" "$icon_path"
+            else
+                icon_path="microsoft-edge"
+            fi
+        fi
+
+        local desktop_file="$app_dir/microsoft-edge-${slug}.desktop"
+        cat > "$desktop_file" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Microsoft Edge — ${name}
+Comment=Open Microsoft Edge with the ${name} profile
+Exec=microsoft-edge --profile-directory="${dir}" %U
+Icon=${icon_path}
+Terminal=false
+Categories=Network;WebBrowser;
+StartupWMClass=Microsoft-edge
+StartupNotify=true
+EOF
+        echo "  Wrote $desktop_file (profile dir: $dir)"
+        created=$((created + 1))
+    done <<< "$entries"
+
+    if [ "$created" -eq 0 ]; then
+        echo "  No profiles found in Local State"
+        return
+    fi
+
+    command_exists update-desktop-database && update-desktop-database "$app_dir" >/dev/null 2>&1 || true
+}
+
 install_mullvad_browser() {
     print_status "Installing Mullvad Browser"
     if command_exists mullvad-browser; then
@@ -1086,35 +1166,6 @@ set_alacritty_default() {
     gsettings set "$item:$path" binding '<Primary><Alt>t'
 }
 
-install_gnome_extensions() {
-    print_status "Installing GNOME extensions and tweaks"
-    sudo apt install -y \
-        gnome-tweaks \
-        gnome-shell-extension-manager \
-        gnome-shell-extensions
-
-    # Install extensions available via apt
-    sudo apt install -y \
-        gnome-shell-extension-dash-to-panel \
-        gnome-shell-extension-gsconnect \
-        2>/dev/null || true
-
-    # ArcMenu, Blur my Shell, and User Themes may not be in apt —
-    # install via gnome-extensions CLI if available
-    print_status "Enabling GNOME extensions"
-
-    # Enable installed extensions (they may need a GNOME Shell restart to take effect)
-    for ext in dash-to-panel@jderose9.github.com user-theme@gnome-shell-extensions.gcampax.github.com gsconnect@andyholmes.github.io; do
-        gnome-extensions enable "$ext" 2>/dev/null || true
-    done
-
-    echo ""
-    echo "  NOTE: For ArcMenu and Blur my Shell, open Extension Manager and install:"
-    echo "    - ArcMenu"
-    echo "    - Blur my Shell"
-    echo "  These cannot be installed non-interactively."
-}
-
 install_flatpak() {
     print_status "Installing Flatpak and Flathub"
     sudo apt install -y flatpak gnome-software-plugin-flatpak
@@ -1148,25 +1199,27 @@ install_communication_apps() {
 }
 
 install_whatsapp_for_linux() {
-    print_status "Installing WhatsApp for Linux (himelrana apt mirror)"
-    if dpkg -l whatsapp-linux 2>/dev/null | grep -q '^ii'; then
-        echo "  WhatsApp for Linux is already installed"
+    print_status "Installing WhatsApp for Linux (Flatpak)"
+
+    # Clean up the defunct himelrana apt mirror if a previous run configured it.
+    # The mirror domain now only serves a static snapshot and breaks `apt update`.
+    local legacy_sources=/etc/apt/sources.list.d/himel-release.list
+    local legacy_keyring=/usr/share/keyrings/himel.gpg
+    if [ -f "$legacy_sources" ] || [ -f "$legacy_keyring" ]; then
+        echo "  Removing legacy himelrana apt mirror configuration"
+        if dpkg -l whatsapp-linux 2>/dev/null | grep -q '^ii'; then
+            sudo apt-get remove -y whatsapp-linux || true
+        fi
+        sudo rm -f "$legacy_sources" "$legacy_keyring"
+        sudo apt update || true
+    fi
+
+    if ! command_exists flatpak; then
+        echo "  Flatpak not available, skipping"
         return
     fi
-
-    local keyring=/usr/share/keyrings/himel.gpg
-    local sources=/etc/apt/sources.list.d/himel-release.list
-    local mirror="https://mirror.himelrana.com"
-
-    if [ ! -f "$keyring" ]; then
-        sudo curl -fsSLo "$keyring" "$mirror/himel.gpg"
-    fi
-    if [ ! -f "$sources" ]; then
-        echo "deb [signed-by=$keyring] $mirror/ stable main" \
-            | sudo tee "$sources" > /dev/null
-        sudo apt update
-    fi
-    sudo apt install -y whatsapp-linux
+    flatpak install -y flathub com.github.eneshecan.WhatsAppForLinux \
+        2>/dev/null || echo "  WhatsApp for Linux install failed"
 }
 
 install_claude_desktop() {
@@ -1359,6 +1412,41 @@ setup_gnome_terminal_font() {
     gsettings set "org.gnome.Terminal.Legacy.Profile:$profile_path" font 'FiraCode Nerd Font Mono 12'
 }
 
+setup_desktop_wallpaper() {
+    print_status "Setting desktop wallpaper to play14 logo"
+    if ! command_exists gsettings; then
+        echo "  gsettings not available, skipping"
+        return
+    fi
+
+    local bg_dir="$HOME/.local/share/backgrounds"
+    mkdir -p "$bg_dir"
+
+    local base="https://raw.githubusercontent.com/play14team/play14/main/packages/design/logo/PNG/4800x1506"
+    local light_file="$bg_dir/play14_white_bg_transparent_4800x1506.png"
+    local dark_file="$bg_dir/play14_black_bg_transparent_4800x1506.png"
+
+    if [ ! -f "$light_file" ]; then
+        curl -fsSL --max-time 120 -o "$light_file" \
+            "$base/play14_white_bg_transparent_4800x1506.png" \
+            || { echo "  Failed to download light wallpaper"; rm -f "$light_file"; }
+    fi
+    if [ ! -f "$dark_file" ]; then
+        curl -fsSL --max-time 120 -o "$dark_file" \
+            "$base/play14_black_bg_transparent_4800x1506.png" \
+            || { echo "  Failed to download dark wallpaper"; rm -f "$dark_file"; }
+    fi
+
+    # `scaled` preserves the 3.19:1 aspect ratio; primary-color fills the letterbox.
+    # GNOME supports only one primary-color across modes — black matches dark mode
+    # exactly; in light mode the bars are black against a white image (mildly
+    # visible but acceptable).
+    [ -f "$light_file" ] && gsettings set org.gnome.desktop.background picture-uri      "file://$light_file" 2>/dev/null || true
+    [ -f "$dark_file" ]  && gsettings set org.gnome.desktop.background picture-uri-dark "file://$dark_file"  2>/dev/null || true
+    gsettings set org.gnome.desktop.background picture-options "scaled"  2>/dev/null || true
+    gsettings set org.gnome.desktop.background primary-color   "#000000" 2>/dev/null || true
+}
+
 setup_keyboard_belgian() {
     print_status "Setting keyboard layout to Belgian (be)"
     if grep -q '^XKBLAYOUT="be"' /etc/default/keyboard 2>/dev/null; then
@@ -1529,11 +1617,11 @@ if ! is_wsl; then
     DESKTOP_STEPS=(
         install_brave
         install_edge
+        setup_edge_profile_shortcuts
         install_mullvad_browser
         install_vscode
         install_alacritty
         set_alacritty_default
-        install_gnome_extensions
         install_flatpak
         install_desktop_apps
         install_communication_apps
@@ -1544,6 +1632,7 @@ if ! is_wsl; then
         install_kmeet
         install_onedriver
         install_gtk_theme
+        setup_desktop_wallpaper
         setup_gnome_terminal_font
         setup_keyboard_belgian
         setup_grub_resolution
@@ -1612,27 +1701,25 @@ if ! is_wsl; then
     echo ""
     echo "🖥️  Desktop components:"
     echo "   ✓ Brave browser"
-    echo "   ✓ Microsoft Edge"
+    echo "   ✓ Microsoft Edge (+ per-profile launchers: cpontet, AP, OP)"
     echo "   ✓ Mullvad Browser"
     echo "   ✓ Visual Studio Code"
     echo "   ✓ Alacritty (GPU-accelerated terminal; managed config auto-launches tmux) — set as default, Ctrl+Alt+T rebound"
-    echo "   ✓ GNOME Tweaks + Extension Manager"
-    echo "   ✓ Dash to Panel + GSConnect extensions"
     echo "   ✓ Flatpak + Flathub"
     echo "   ✓ VLC, GIMP, Evince (PDF), Shotcut (video), Sound Recorder"
     echo "   ✓ Discord, Slack (Flatpak)"
-    echo "   ✓ WhatsApp for Linux (himelrana apt mirror)"
+    echo "   ✓ WhatsApp for Linux (Flatpak)"
     echo "   ✓ Claude Desktop (aaddrick .deb build)"
     echo "   ✓ Infomaniak kDrive, kChat, kMeet (official AppImages + .desktop entries)"
     echo "   ✓ OneDriver (Microsoft OneDrive FUSE client)"
     echo "   ✓ WhiteSur GTK + icon theme"
+    echo "   ✓ Desktop wallpaper: play14 logo (black background)"
     echo "   ✓ GNOME Terminal default font: FiraCode Nerd Font Mono 12"
     echo "   ✓ Belgian keyboard layout (console + X11 + LUKS prompt)"
     echo "   ✓ GRUB 1080p resolution (readable on HiDPI)"
     echo "   ✓ GRUB vimix theme"
     echo ""
     echo "   Manual steps needed:"
-    echo "     - Open Extension Manager and install: ArcMenu, Blur my Shell"
     echo "     - Open GNOME Tweaks to activate WhiteSur theme and icons"
 
     if is_surface; then
