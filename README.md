@@ -104,7 +104,7 @@ Skipped under WSL.
 **Apps**
 - Flatpak + Flathub
 - Media: VLC, GIMP, Evince (PDF), GNOME Sound Recorder, GParted, Shotcut (Flatpak)
-- Communication: Discord (Flatpak), Slack (Flatpak), WhatsApp for Linux (Flatpak — `com.github.eneshecan.WhatsAppForLinux`)
+- Communication: Discord (Flatpak), Slack (Flatpak), WhatsApp for Linux (snap — `whatsapp-linux-app` from HimoSoft / swe-himel)
 - Cloud sync & meetings: Infomaniak kDrive, kChat, kMeet (official AppImages + `.desktop` entries), OneDriver (Microsoft OneDrive FUSE client — on-demand file access)
 - AI: Claude Desktop (built locally from `aaddrick/claude-desktop-debian`)
 

@@ -1199,7 +1199,7 @@ install_communication_apps() {
 }
 
 install_whatsapp_for_linux() {
-    print_status "Installing WhatsApp for Linux (Flatpak)"
+    print_status "Installing WhatsApp for Linux (snap: whatsapp-linux-app)"
 
     # Clean up the defunct himelrana apt mirror if a previous run configured it.
     # The mirror domain now only serves a static snapshot and breaks `apt update`.
@@ -1214,12 +1214,24 @@ install_whatsapp_for_linux() {
         sudo apt update || true
     fi
 
-    if ! command_exists flatpak; then
-        echo "  Flatpak not available, skipping"
+    # Remove the eneshecan Flatpak from the short-lived Flatpak-based revision
+    # of this step so we don't end up with two WhatsApp entries in the launcher.
+    if command_exists flatpak \
+        && flatpak info com.github.eneshecan.WhatsAppForLinux >/dev/null 2>&1; then
+        echo "  Removing previous Flatpak (com.github.eneshecan.WhatsAppForLinux)"
+        flatpak uninstall -y --noninteractive com.github.eneshecan.WhatsAppForLinux || true
+    fi
+
+    if ! command_exists snap; then
+        echo "  snap not available, skipping"
         return
     fi
-    flatpak install -y flathub com.github.eneshecan.WhatsAppForLinux \
-        2>/dev/null || echo "  WhatsApp for Linux install failed"
+    if snap list whatsapp-linux-app >/dev/null 2>&1; then
+        echo "  whatsapp-linux-app snap is already installed"
+        return
+    fi
+    sudo snap install whatsapp-linux-app \
+        || echo "  WhatsApp for Linux install failed"
 }
 
 install_claude_desktop() {
@@ -1708,7 +1720,7 @@ if ! is_wsl; then
     echo "   ✓ Flatpak + Flathub"
     echo "   ✓ VLC, GIMP, Evince (PDF), Shotcut (video), Sound Recorder"
     echo "   ✓ Discord, Slack (Flatpak)"
-    echo "   ✓ WhatsApp for Linux (Flatpak)"
+    echo "   ✓ WhatsApp for Linux (snap — whatsapp-linux-app)"
     echo "   ✓ Claude Desktop (aaddrick .deb build)"
     echo "   ✓ Infomaniak kDrive, kChat, kMeet (official AppImages + .desktop entries)"
     echo "   ✓ OneDriver (Microsoft OneDrive FUSE client)"
