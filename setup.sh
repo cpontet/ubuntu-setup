@@ -664,6 +664,97 @@ install_tmux() {
     fi
 }
 
+setup_tmux_config() {
+    print_status "Configuring tmux (managed ~/.tmux.conf + TPM + plugins)"
+    local marker="# managed-by: ubuntu-setup"
+    local tmux_conf="$HOME/.tmux.conf"
+
+    # xclip is needed for the copy-mode → system clipboard bridge
+    if ! command_exists xclip; then
+        sudo apt install -y xclip
+    fi
+
+    if [ -f "$tmux_conf" ] && ! head -1 "$tmux_conf" | grep -q "^$marker"; then
+        echo "  Existing user-customized $tmux_conf — not overwriting"
+    else
+        cat > "$tmux_conf" << 'EOF'
+# managed-by: ubuntu-setup
+# Remove the marker line above to take ownership of this file.
+
+# Prefix: Ctrl+a (more ergonomic than Ctrl+b)
+unbind C-b
+set -g prefix C-a
+bind C-a send-prefix
+
+# General
+set  -g default-terminal "tmux-256color"
+set -ga terminal-overrides ",alacritty:Tc,*256col*:Tc"
+set  -g mouse on
+set  -g history-limit 100000
+set  -g base-index 1
+setw -g pane-base-index 1
+set  -g renumber-windows on
+set  -s escape-time 0
+set  -g focus-events on
+
+# Reload config
+bind r source-file ~/.tmux.conf \; display "tmux.conf reloaded"
+
+# Intuitive splits that preserve cwd
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+unbind '"'
+unbind %
+
+# Vim-style pane navigation + resize
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+bind -r H resize-pane -L 5
+bind -r J resize-pane -D 5
+bind -r K resize-pane -U 5
+bind -r L resize-pane -R 5
+
+# Copy mode (vi) → system clipboard
+setw -g mode-keys vi
+bind -T copy-mode-vi v send-keys -X begin-selection
+bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "xclip -selection clipboard"
+
+# Status line
+set -g status-position top
+set -g status-interval 5
+set -g status-style "bg=default,fg=default"
+set -g status-left  "#[fg=green,bold] #S "
+set -g status-right "#[fg=cyan] %Y-%m-%d #[fg=yellow] %H:%M "
+set -g window-status-current-style "fg=black,bg=cyan,bold"
+
+# TPM plugins (install with prefix + I, update with prefix + U)
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'tmux-plugins/tmux-sensible'
+set -g @plugin 'tmux-plugins/tmux-resurrect'
+set -g @plugin 'tmux-plugins/tmux-continuum'
+set -g @continuum-restore   'on'
+set -g @continuum-save-interval '15'
+
+# Init TPM — keep at the very bottom
+run '~/.tmux/plugins/tpm/tpm'
+EOF
+        echo "  Wrote managed $tmux_conf"
+    fi
+
+    # Install TPM (tmux plugin manager)
+    local tpm_dir="$HOME/.tmux/plugins/tpm"
+    if [ ! -d "$tpm_dir" ]; then
+        git clone --depth=1 https://github.com/tmux-plugins/tpm "$tpm_dir"
+    fi
+
+    # Bootstrap plugins non-interactively
+    if [ -x "$tpm_dir/bin/install_plugins" ]; then
+        "$tpm_dir/bin/install_plugins" >/dev/null 2>&1 || true
+    fi
+}
+
 install_git_polish() {
     print_status "Installing git-delta and lazygit"
 
@@ -741,7 +832,7 @@ install_dotnet() {
 install_go() {
     print_status "Installing Go toolchain (latest from go.dev)"
     local latest arch tarball install_dir="/usr/local/go"
-    latest=$(curl -fsSL "https://go.dev/dl/?mode=json" | jq -r '.[0].version')
+    latest=$(curl -fsSL --max-time 30 "https://go.dev/dl/?mode=json" | jq -r '.[0].version')
     if [ -z "$latest" ] || [ "$latest" = "null" ]; then
         echo "  Could not determine latest Go version, skipping"
         return
@@ -751,7 +842,9 @@ install_go() {
     else
         arch=$(dpkg --print-architecture)
         tarball="/tmp/${latest}.linux-${arch}.tar.gz"
-        curl -fsSL -o "$tarball" "https://go.dev/dl/${latest}.linux-${arch}.tar.gz"
+        echo "  Downloading ${latest}.linux-${arch}.tar.gz (~150MB)..."
+        # -# shows a progress bar; --max-time guards against a hung connection
+        curl -fL --max-time 600 -# -o "$tarball" "https://go.dev/dl/${latest}.linux-${arch}.tar.gz"
         sudo rm -rf "$install_dir"
         sudo tar -C /usr/local -xzf "$tarball"
         rm -f "$tarball"
@@ -896,6 +989,103 @@ install_vscode() {
     fi
 }
 
+install_alacritty() {
+    print_status "Installing Alacritty terminal emulator"
+    if ! command_exists alacritty; then
+        sudo apt install -y alacritty
+    else
+        echo "  Alacritty is already installed ($(alacritty --version 2>/dev/null))"
+    fi
+
+    local marker="# managed-by: ubuntu-setup"
+    local cfg_dir="$HOME/.config/alacritty"
+    local cfg_file="$cfg_dir/alacritty.toml"
+
+    if [ -f "$cfg_file" ] && ! head -1 "$cfg_file" | grep -q "^$marker"; then
+        echo "  Existing user-customized $cfg_file — not overwriting"
+        return
+    fi
+
+    mkdir -p "$cfg_dir"
+    cat > "$cfg_file" << EOF
+$marker
+# Remove the marker line above to take ownership of this file.
+
+[window]
+padding = { x = 8, y = 8 }
+opacity = 0.98
+
+[font]
+size = 12.0
+
+[font.normal]
+family = "FiraCode Nerd Font Mono"
+style  = "Regular"
+
+[font.bold]
+family = "FiraCode Nerd Font Mono"
+style  = "Bold"
+
+[font.italic]
+family = "FiraCode Nerd Font Mono"
+style  = "Italic"
+
+[scrolling]
+history = 10000
+
+[selection]
+save_to_clipboard = true
+
+# Auto-launch tmux: attach to session "main" or create it.
+# To open a raw shell instead, run: alacritty -e bash
+[terminal.shell]
+program = "/bin/bash"
+args = ["-l", "-c", "tmux new-session -A -s main"]
+EOF
+    echo "  Wrote managed Alacritty config to $cfg_file"
+}
+
+set_alacritty_default() {
+    print_status "Setting Alacritty as the default terminal"
+    if ! command_exists alacritty; then
+        echo "  Alacritty not installed, skipping"
+        return
+    fi
+
+    # System-level: apps that call x-terminal-emulator (xdg-terminal, Thunderbird, etc.)
+    sudo update-alternatives --set x-terminal-emulator /usr/bin/alacritty 2>/dev/null || true
+
+    if ! command_exists gsettings; then
+        return
+    fi
+
+    # GNOME legacy default-applications (still respected by some handlers)
+    gsettings set org.gnome.desktop.default-applications.terminal exec 'alacritty'    2>/dev/null || true
+    gsettings set org.gnome.desktop.default-applications.terminal exec-arg ''         2>/dev/null || true
+
+    # Disable the built-in "launch terminal" binding so it doesn't race with our custom one
+    gsettings set org.gnome.settings-daemon.plugins.media-keys terminal "[]" 2>/dev/null || true
+
+    # Re-bind Ctrl+Alt+T to Alacritty via a custom keybinding
+    local base="org.gnome.settings-daemon.plugins.media-keys"
+    local item="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
+    local path="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/alacritty/"
+
+    local existing
+    existing=$(gsettings get "$base" custom-keybindings 2>/dev/null || echo "@as []")
+    if [[ "$existing" != *"$path"* ]]; then
+        if [ "$existing" = "@as []" ] || [ "$existing" = "[]" ]; then
+            gsettings set "$base" custom-keybindings "['$path']"
+        else
+            gsettings set "$base" custom-keybindings "${existing%]}, '$path']"
+        fi
+    fi
+
+    gsettings set "$item:$path" name    'Alacritty'
+    gsettings set "$item:$path" command 'alacritty'
+    gsettings set "$item:$path" binding '<Primary><Alt>t'
+}
+
 install_gnome_extensions() {
     print_status "Installing GNOME extensions and tweaks"
     sudo apt install -y \
@@ -948,14 +1138,35 @@ install_desktop_apps() {
 }
 
 install_communication_apps() {
-    print_status "Installing Discord, Slack, and WhatsApp (via Flatpak)"
+    print_status "Installing Discord and Slack (via Flatpak)"
     if ! command_exists flatpak; then
         echo "  Flatpak not available, skipping"
         return
     fi
     flatpak install -y flathub com.discordapp.Discord 2>/dev/null || echo "  Discord install failed"
     flatpak install -y flathub com.slack.Slack 2>/dev/null || echo "  Slack install failed"
-    flatpak install -y flathub io.github.mimbrero.WhatsAppDesktop 2>/dev/null || echo "  WhatsApp install failed"
+}
+
+install_whatsapp_for_linux() {
+    print_status "Installing WhatsApp for Linux (himelrana apt mirror)"
+    if dpkg -l whatsapp-linux 2>/dev/null | grep -q '^ii'; then
+        echo "  WhatsApp for Linux is already installed"
+        return
+    fi
+
+    local keyring=/usr/share/keyrings/himel.gpg
+    local sources=/etc/apt/sources.list.d/himel-release.list
+    local mirror="https://mirror.himelrana.com"
+
+    if [ ! -f "$keyring" ]; then
+        sudo curl -fsSLo "$keyring" "$mirror/himel.gpg"
+    fi
+    if [ ! -f "$sources" ]; then
+        echo "deb [signed-by=$keyring] $mirror/ stable main" \
+            | sudo tee "$sources" > /dev/null
+        sudo apt update
+    fi
+    sudo apt install -y whatsapp-linux
 }
 
 install_claude_desktop() {
@@ -965,13 +1176,28 @@ install_claude_desktop() {
         return
     fi
 
+    # build.sh refuses to run as root — need a real user
+    if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ]; then
+        echo "  Running as root with no SUDO_USER — cannot build; skipping"
+        return 1
+    fi
+    local target_user="${SUDO_USER:-$USER}"
+
     # Build deps documented upstream: 7z, wget, wrestool/icotool (icoutils), convert (imagemagick)
     sudo apt install -y p7zip-full wget icoutils imagemagick
 
     local repo=/tmp/claude-desktop-debian
-    [ -d "$repo" ] && rm -rf "$repo"
-    git clone --depth 1 https://github.com/aaddrick/claude-desktop-debian.git "$repo"
-    (cd "$repo" && ./build.sh) || { echo "  build.sh failed"; return 1; }
+    [ -d "$repo" ] && sudo rm -rf "$repo"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        sudo -u "$target_user" git clone --depth 1 \
+            https://github.com/aaddrick/claude-desktop-debian.git "$repo"
+        sudo -u "$target_user" -H bash -c "cd '$repo' && ./build.sh" \
+            || { echo "  build.sh failed"; return 1; }
+    else
+        git clone --depth 1 https://github.com/aaddrick/claude-desktop-debian.git "$repo"
+        (cd "$repo" && ./build.sh) || { echo "  build.sh failed"; return 1; }
+    fi
 
     local deb
     deb=$(find "$repo" -name 'claude-desktop_*.deb' -print -quit)
@@ -980,7 +1206,101 @@ install_claude_desktop() {
         return 1
     fi
     sudo dpkg -i "$deb" || sudo apt-get install -f -y
-    rm -rf "$repo"
+    sudo rm -rf "$repo"
+}
+
+# Shared helper for Infomaniak AppImage apps (kDrive, kChat, kMeet).
+# Downloads the AppImage to ~/.local/bin, extracts its icon, and writes a .desktop entry.
+_install_infomaniak_appimage() {
+    # Usage: _install_infomaniak_appimage <display-name> <slug> <url> [categories]
+    local name="$1" slug="$2" url="$3" categories="${4:-Network;}"
+    local bin_dir="$HOME/.local/bin"
+    local app_dir="$HOME/.local/share/applications"
+    local icon_dir="$HOME/.local/share/icons/hicolor/512x512/apps"
+    local appimage="$bin_dir/${name}.AppImage"
+    local desktop_file="$app_dir/${slug}.desktop"
+
+    if [ -x "$appimage" ] && [ -f "$desktop_file" ]; then
+        echo "  $name is already installed at $appimage"
+        return
+    fi
+
+    mkdir -p "$bin_dir" "$app_dir" "$icon_dir"
+
+    # AppImages need FUSE; Ubuntu 24.04 ships libfuse2t64, older releases use libfuse2
+    sudo apt install -y libfuse2t64 2>/dev/null || sudo apt install -y libfuse2 2>/dev/null || true
+
+    if [ ! -x "$appimage" ]; then
+        curl -fL --max-time 600 -# -o "$appimage" "$url"
+        chmod +x "$appimage"
+    fi
+
+    local extract_dir="/tmp/${slug}-extract"
+    rm -rf "$extract_dir"
+    mkdir -p "$extract_dir"
+    ( cd "$extract_dir" && "$appimage" --appimage-extract "${slug}.png" >/dev/null 2>&1 ) || true
+    local extracted
+    extracted=$(find "$extract_dir" -name "${slug}.png" -print -quit 2>/dev/null)
+    [ -n "$extracted" ] && cp "$extracted" "$icon_dir/${slug}.png"
+    rm -rf "$extract_dir"
+
+    cat > "$desktop_file" << EOF
+[Desktop Entry]
+Type=Application
+Name=$name
+Exec=$appimage
+Icon=$slug
+Terminal=false
+Categories=$categories
+StartupWMClass=$name
+EOF
+
+    command_exists update-desktop-database && update-desktop-database "$app_dir" >/dev/null 2>&1 || true
+}
+
+install_kdrive() {
+    print_status "Installing Infomaniak kDrive (official AppImage)"
+    _install_infomaniak_appimage "kDrive" "kdrive" \
+        "https://download.storage.infomaniak.com/drive/desktopclient/kDrive-x86_64.AppImage" \
+        "Network;FileTransfer;"
+}
+
+install_kchat() {
+    print_status "Installing Infomaniak kChat (official AppImage)"
+    _install_infomaniak_appimage "kChat" "kchat" \
+        "https://download.storage.infomaniak.com/kchat/desktop/kChat-x86_64.AppImage" \
+        "Network;InstantMessaging;Chat;"
+}
+
+install_kmeet() {
+    print_status "Installing Infomaniak kMeet (official AppImage)"
+    _install_infomaniak_appimage "kMeet" "kmeet" \
+        "https://download.storage.infomaniak.com/kmeet/desktop/kMeet-x86_64.AppImage" \
+        "Network;Telephony;AudioVideo;"
+}
+
+install_onedriver() {
+    print_status "Installing OneDriver (Microsoft OneDrive FUSE client)"
+    if command_exists onedriver; then
+        echo "  OneDriver is already installed"
+        return
+    fi
+
+    # Upstream ships via openSUSE Build Service; pin to the current Ubuntu release
+    local ubuntu_ver
+    ubuntu_ver=$(lsb_release -rs 2>/dev/null || echo "24.04")
+    local obs_repo="https://download.opensuse.org/repositories/home:jstaf/xUbuntu_${ubuntu_ver}"
+    local keyring=/usr/share/keyrings/onedriver.gpg
+    local sources=/etc/apt/sources.list.d/onedriver.list
+
+    if [ ! -f "$keyring" ]; then
+        curl -fsSL "$obs_repo/Release.key" | sudo gpg --dearmor -o "$keyring"
+    fi
+    if [ ! -f "$sources" ]; then
+        echo "deb [signed-by=$keyring] $obs_repo/ /" | sudo tee "$sources" > /dev/null
+        sudo apt update
+    fi
+    sudo apt install -y onedriver
 }
 
 install_gtk_theme() {
@@ -1180,6 +1500,7 @@ COMMON_STEPS=(
     install_jdtls
     install_modern_cli
     install_tmux
+    setup_tmux_config
     install_git_polish
     install_rust
     install_dotnet
@@ -1210,11 +1531,18 @@ if ! is_wsl; then
         install_edge
         install_mullvad_browser
         install_vscode
+        install_alacritty
+        set_alacritty_default
         install_gnome_extensions
         install_flatpak
         install_desktop_apps
         install_communication_apps
+        install_whatsapp_for_linux
         install_claude_desktop
+        install_kdrive
+        install_kchat
+        install_kmeet
+        install_onedriver
         install_gtk_theme
         setup_gnome_terminal_font
         setup_keyboard_belgian
@@ -1265,7 +1593,7 @@ echo "   ✓ SDKMAN + OpenJDK 25 (Temurin)"
 echo "   ✓ typescript-language-server (TypeScript LSP)"
 echo "   ✓ jdtls (Eclipse Java LSP)"
 echo "   ✓ Modern CLI: ripgrep, fd, bat, eza, fzf, zoxide"
-echo "   ✓ tmux (terminal multiplexer)"
+echo "   ✓ tmux (terminal multiplexer) + managed ~/.tmux.conf + TPM + plugins (sensible, resurrect, continuum)"
 echo "   ✓ git-delta + lazygit (git diff/TUI)"
 echo "   ✓ git-lfs + pre-commit (git workflow)"
 echo "   ✓ Rust toolchain (rustup, cargo, rustc)"
@@ -1287,12 +1615,16 @@ if ! is_wsl; then
     echo "   ✓ Microsoft Edge"
     echo "   ✓ Mullvad Browser"
     echo "   ✓ Visual Studio Code"
+    echo "   ✓ Alacritty (GPU-accelerated terminal; managed config auto-launches tmux) — set as default, Ctrl+Alt+T rebound"
     echo "   ✓ GNOME Tweaks + Extension Manager"
     echo "   ✓ Dash to Panel + GSConnect extensions"
     echo "   ✓ Flatpak + Flathub"
     echo "   ✓ VLC, GIMP, Evince (PDF), Shotcut (video), Sound Recorder"
-    echo "   ✓ Discord, Slack, WhatsApp (Flatpak)"
+    echo "   ✓ Discord, Slack (Flatpak)"
+    echo "   ✓ WhatsApp for Linux (himelrana apt mirror)"
     echo "   ✓ Claude Desktop (aaddrick .deb build)"
+    echo "   ✓ Infomaniak kDrive, kChat, kMeet (official AppImages + .desktop entries)"
+    echo "   ✓ OneDriver (Microsoft OneDrive FUSE client)"
     echo "   ✓ WhiteSur GTK + icon theme"
     echo "   ✓ GNOME Terminal default font: FiraCode Nerd Font Mono 12"
     echo "   ✓ Belgian keyboard layout (console + X11 + LUKS prompt)"

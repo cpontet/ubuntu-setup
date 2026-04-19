@@ -28,9 +28,12 @@ The script is safe to re-run — it detects what's already installed and only ap
 **Shell experience**
 - Starship prompt
 - Nerd Fonts: FiraCode, JetBrainsMono, Meslo, Hack
+- `tmux` (terminal multiplexer) with a managed `~/.tmux.conf`: prefix `Ctrl+a`, mouse support, truecolor, vim-style pane nav (`hjkl`) + resize (`HJKL`), `|` / `-` splits, copy mode yanks to the system clipboard (`xclip`), status line at top, session restore on reboot. TPM is installed and plugins (`sensible`, `resurrect`, `continuum`) are auto-bootstrapped.
+- Modern CLI bundle: `ripgrep`, `fd`, `bat`, `eza`, `fzf` (with key-bindings + completion), `zoxide` (smarter `cd` via `z` / `zi`)
+- CLI QoL: `btop`, `tldr`, `hyperfine`
 - Enhanced bash completion (case-insensitive, colored, menu-complete via Tab)
 - History tuning (10k lines, dedup)
-- Aliases: `c=clear`, `p=pnpm`, `y=yarn`, `g=git`, `k=kubectl`, `pod=podman`, `docker=podman`, `ll`, `la`, `l`
+- Aliases: `c=clear`, `p=pnpm`, `y=yarn`, `g=git`, `k=kubectl`, `pod=podman`, `docker=podman`, `lg=lazygit`, `bat=batcat`, `fd=fdfind`, `ll`, `la`, `l`, `repos=cd ~/repos`, `..`, `...`, `....`
 - `~/repos` workspace directory
 
 **JavaScript / TypeScript**
@@ -47,15 +50,36 @@ The script is safe to re-run — it detects what's already installed and only ap
 **Python**
 - `uv` (fast Python package manager)
 
+**Go**
+- Latest stable from go.dev, installed to `/usr/local/go` with `$HOME/go/bin` on PATH
+
+**Rust**
+- `rustup` + stable toolchain (`cargo`, `rustc`)
+
+**.NET**
+- .NET SDK 10
+
+**Git tooling**
+- `git-delta` (diff pager, wired into `~/.gitconfig` globally: side-by-side, line numbers, `zdiff3` merge style)
+- `lazygit` (terminal UI for git, aliased as `lg`)
+- `git-lfs`
+- `pre-commit` (installed via `uv tool`)
+
 **Cloud / DevOps CLIs**
 - GitHub CLI (`gh`)
 - GitLab CLI (`glab`)
 - Azure CLI (`az`)
 - AWS CLI (`aws`)
 - Cloudflare Wrangler
+- Clever Cloud CLI (`clever`)
 - kubectl + k9s
+- `kubectx`, `kubens`, `stern`
 - Helm
-- direnv (auto-load `.envrc` per project)
+- `direnv` (auto-load `.envrc` per project)
+
+**Dev tooling**
+- `mkcert` (local HTTPS CA)
+- `just` (modern task runner)
 
 **AI tooling**
 - Claude Code (native binary)
@@ -65,10 +89,12 @@ The script is safe to re-run — it detects what's already installed and only ap
 
 Skipped under WSL.
 
-**Browsers & editor**
+**Browsers, editor & terminal**
 - Brave browser
 - Microsoft Edge
+- Mullvad Browser
 - Visual Studio Code
+- Alacritty (GPU-accelerated terminal) — **set as the system default terminal**; managed config at `~/.config/alacritty/alacritty.toml` uses `FiraCode Nerd Font Mono` 12 and auto-launches `tmux new-session -A -s main`, so every new window attaches to the same tmux session. `Ctrl+Alt+T` is rebound to Alacritty via a GNOME custom keybinding, and `update-alternatives` points `x-terminal-emulator` at Alacritty for any app that honors it.
 
 **GNOME polish**
 - GNOME Tweaks + Extension Manager
@@ -78,8 +104,10 @@ Skipped under WSL.
 
 **Apps**
 - Flatpak + Flathub
-- VLC, GIMP, Evince, GNOME Sound Recorder, GParted
-- Shotcut (video editor, via Flatpak)
+- Media: VLC, GIMP, Evince (PDF), GNOME Sound Recorder, GParted, Shotcut (Flatpak)
+- Communication: Discord (Flatpak), Slack (Flatpak), WhatsApp for Linux (`himelrana` apt mirror)
+- Cloud sync & meetings: Infomaniak kDrive, kChat, kMeet (official AppImages + `.desktop` entries), OneDriver (Microsoft OneDrive FUSE client — on-demand file access)
+- AI: Claude Desktop (built locally from `aaddrick/claude-desktop-debian`)
 
 **System**
 - Belgian keyboard layout (applied to console, X11, and LUKS prompt)
@@ -116,6 +144,7 @@ Only runs if `/sys/class/dmi/id` reports a Microsoft Surface device.
    glab auth login
    az login
    aws configure
+   clever login
    ```
 
 ### Native Desktop only
@@ -127,7 +156,66 @@ Only runs if `/sys/class/dmi/id` reports a Microsoft Surface device.
    - Applications: `WhiteSur-Dark` (or `WhiteSur-Light`)
    - Shell: same
    - Icons: `WhiteSur`
-3. **Log out / back in** so the new GRUB resolution, keyboard layout, and GNOME extensions fully take effect.
+3. **Log out / back in** so GRUB resolution, keyboard layout, GNOME extensions, and the Alacritty `Ctrl+Alt+T` custom keybinding all take effect.
+4. **Read the Alacritty + tmux notes** (see below) — your terminal now auto-launches tmux; the section covers how to use it and how to opt out.
+5. **Set up OneDriver** (see below) — it's installed but needs a one-time account link.
+
+### Alacritty + tmux
+
+Alacritty is the default terminal and is configured to auto-attach to a tmux session called `main` every time it launches. Both configs are written with a `# managed-by: ubuntu-setup` marker on the first line:
+
+- `~/.config/alacritty/alacritty.toml`
+- `~/.tmux.conf`
+
+Re-running `setup.sh` **regenerates** any file that still starts with that marker (so you get config upgrades for free). **Delete the marker line** on either file to "adopt" it — the script will then leave it alone forever.
+
+**Everyday usage**
+
+- `Ctrl+Alt+T` → Alacritty → tmux session `main` (or a new session attached to `main`).
+- Want a raw shell without tmux? `alacritty -e bash`.
+- Inside tmux, the prefix is **`Ctrl+a`** (not the vanilla `Ctrl+b`). A double-tap sends a literal `Ctrl+a` to the underlying shell.
+
+**tmux cheat sheet (with the managed config)**
+
+| Keys | Action |
+|---|---|
+| `prefix` + `\|` / `-` | Split pane vertically / horizontally, preserving cwd |
+| `prefix` + `h` / `j` / `k` / `l` | Navigate panes (vim-style) |
+| `prefix` + `H` / `J` / `K` / `L` | Resize pane — repeatable while held |
+| `prefix` + `r` | Reload `~/.tmux.conf` |
+| `prefix` + `[` | Enter copy mode (vi keys); `v` to start select, `y` to yank to system clipboard |
+| `prefix` + `I` / `U` | TPM: install / update plugins |
+
+**Session restore**. `tmux-continuum` auto-saves every 15 minutes and restores on tmux startup, so your panes come back after a reboot. The first save happens after you've had an active session for 15 minutes.
+
+**First-run clipboard note**. On native Wayland/X11 the `y` binding yanks to the system clipboard via `xclip` (installed automatically). Under WSL, `xclip` requires WSLg — if yanking doesn't work, swap the binding for `clip.exe`.
+
+### OneDriver (Microsoft OneDrive)
+
+OneDriver mounts OneDrive as a FUSE filesystem with on-demand download, similar to the "Files On-Demand" experience on Windows.
+
+1. **Link an account.** Either launch **OneDriver** from the GNOME menu and pick an empty mount folder, or from a terminal:
+   ```sh
+   mkdir -p ~/OneDrive
+   onedriver ~/OneDrive         # opens a browser window for Microsoft login, then mounts
+   ```
+   If the embedded login popup fails (blank window / WebKit issues on some GNOME setups), use the system browser instead:
+   ```sh
+   onedriver -a ~/OneDrive
+   ```
+2. **Auto-mount on login** via a systemd user service. Systemd escapes `/` in the path to `-`:
+   ```sh
+   systemctl --user enable --now onedriver@home-$USER-OneDrive.service
+   systemctl --user status  onedriver@home-$USER-OneDrive.service
+   ```
+3. **Multiple accounts** (e.g. personal + work) — repeat step 1 with a different empty folder (e.g. `~/OneDrive-Work`) and enable a second service unit for that path.
+4. **Unlink an account / reset state**:
+   ```sh
+   systemctl --user disable --now onedriver@home-$USER-OneDrive.service
+   rm -rf ~/.cache/onedriver/<account-id>
+   ```
+
+**Known gotcha — Work/School accounts with Conditional Access.** If login ends with an error like `AADSTS53003`, your tenant blocks OneDriver's registered app ID. There is no client-side fix; you'd need either the official Microsoft client (Windows/macOS only) or `rclone` configured with your tenant's own app registration.
 
 ### Microsoft Surface only
 
