@@ -7,6 +7,8 @@
 
 set -o pipefail  # pipe fails if any command in it fails
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
@@ -70,39 +72,23 @@ update_bashrc_section() {
     echo -e "$end_marker" >> ~/.bashrc
 }
 
-# Manage .bash_aliases file (add aliases idempotently)
+# Install .bash_aliases by copying the bundled file into $HOME
 manage_bash_aliases() {
-    local aliases_file="$HOME/.bash_aliases"
+    local src="$SCRIPT_DIR/.bash_aliases"
+    local dest="$HOME/.bash_aliases"
 
-    [ ! -f "$aliases_file" ] && touch "$aliases_file"
+    if [ ! -f "$src" ]; then
+        echo "  ⚠️  Source file '$src' not found — skipping"
+        return 1
+    fi
 
-    add_alias_if_not_exists() {
-        local alias_name="$1"
-        local alias_command="$2"
-        local alias_line="alias $alias_name='$alias_command'"
-
-        if ! grep -q "^alias $alias_name=" "$aliases_file"; then
-            echo "$alias_line" >> "$aliases_file"
-            echo "  Added alias '$alias_name'"
-        fi
-    }
-
-    add_alias_if_not_exists "c" "clear"
-    add_alias_if_not_exists "p" "pnpm"
-    add_alias_if_not_exists "y" "yarn"
-    add_alias_if_not_exists "pod" "podman"
-    add_alias_if_not_exists "docker" "podman"
-    add_alias_if_not_exists "ll" "ls -alF"
-    add_alias_if_not_exists "la" "ls -A"
-    add_alias_if_not_exists "l" "ls -CF"
-    add_alias_if_not_exists "repos" "cd ~/repos"
-    add_alias_if_not_exists ".." "cd .."
-    add_alias_if_not_exists "..." "cd ../.."
-    add_alias_if_not_exists "...." "cd ../../.."
-    # Ubuntu ships bat/fd as batcat/fdfind; alias to the conventional names
-    add_alias_if_not_exists "bat" "batcat"
-    add_alias_if_not_exists "fd" "fdfind"
-    add_alias_if_not_exists "lg" "lazygit"
+    if [ -f "$dest" ] && cmp -s "$src" "$dest"; then
+        echo "  .bash_aliases already up to date"
+    else
+        [ -f "$dest" ] && cp "$dest" "$dest.backup"
+        cp "$src" "$dest"
+        echo "  Installed .bash_aliases (backup at $dest.backup if it existed)"
+    fi
 
     # Ensure .bashrc sources .bash_aliases
     if ! grep -q "\.bash_aliases" ~/.bashrc; then
