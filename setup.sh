@@ -121,23 +121,41 @@ fi'
 
 install_system_packages() {
     print_status "Updating and upgrading system packages"
-    sudo apt update && sudo apt upgrade -y
+    sudo apt update && sudo apt upgrade -y || true
 
     print_status "Installing essential packages"
-    sudo apt install -y \
-        git \
-        bash-completion \
-        command-not-found \
-        curl \
-        wget \
-        unzip \
-        jq \
-        tree \
-        htop \
-        neofetch \
-        build-essential \
-        python3-pip \
+    local packages=(
+        git
+        bash-completion
+        command-not-found
+        curl
+        wget
+        unzip
+        zip
+        zstd
+        jq
+        tree
+        htop
+        build-essential
+        python3-pip
         python3-venv
+    )
+
+    # Try a single bulk install — fast path. If it fails (e.g. a single missing
+    # candidate on a newer Ubuntu release), fall back to per-package installs so
+    # one missing package doesn't block everything that follows.
+    if ! sudo apt install -y "${packages[@]}"; then
+        echo "  Bulk install failed — falling back to per-package install"
+        for pkg in "${packages[@]}"; do
+            sudo apt install -y "$pkg" || echo "  ⚠️  Failed to install $pkg — continuing"
+        done
+    fi
+
+    # fastfetch replaces the now-removed neofetch — best-effort, may not be
+    # available on every release.
+    sudo apt install -y fastfetch 2>/dev/null || true
+
+    return 0
 }
 
 install_podman() {
@@ -265,14 +283,37 @@ install_az() {
 
 install_aws() {
     print_status "Installing AWS CLI"
-    if ! command_exists aws; then
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
-        && unzip -q awscliv2.zip \
-        && sudo ./aws/install \
-        && rm -rf awscliv2.zip aws/
-    else
+    if command_exists aws; then
         echo "  AWS CLI is already installed"
+        return
     fi
+
+    if ! command_exists unzip; then
+        sudo apt install -y unzip || {
+            echo "  unzip not available, cannot install AWS CLI"
+            return 1
+        }
+    fi
+
+    local arch aws_arch
+    arch=$(dpkg --print-architecture)
+    case "$arch" in
+        amd64) aws_arch=x86_64 ;;
+        arm64) aws_arch=aarch64 ;;
+        *) echo "  Unsupported arch for AWS CLI: $arch"; return 1 ;;
+    esac
+
+    local tmp
+    tmp=$(mktemp -d)
+    (
+        cd "$tmp" \
+        && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip" \
+        && unzip -q awscliv2.zip \
+        && sudo ./aws/install
+    )
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
 }
 
 install_wrangler() {
@@ -292,6 +333,27 @@ install_clever_tools() {
     print_status "Installing Clever Cloud CLI (clever-tools)"
     if command_exists clever; then
         echo "  Clever Cloud CLI is already installed ($(clever version 2>/dev/null | head -1 || echo 'version unknown'))"
+        return
+    fi
+
+    # Clever's nexus deb repo is amd64-only — fall back to the official npm
+    # package on other architectures.
+    local arch
+    arch=$(dpkg --print-architecture)
+    if [ "$arch" != "amd64" ]; then
+        # NVM may not be sourced in this shell yet — pull it in if available so
+        # `npm` resolves without needing sudo (NVM's global prefix is user-owned).
+        if ! command_exists npm && [ -s "$HOME/.nvm/nvm.sh" ]; then
+            # shellcheck source=/dev/null
+            \. "$HOME/.nvm/nvm.sh"
+        fi
+        if command_exists npm; then
+            echo "  apt repo is amd64-only — installing via npm (no sudo: NVM prefix is user-owned)"
+            npm install -g clever-tools
+        else
+            echo "  apt repo is amd64-only and npm not available, skipping"
+            return 1
+        fi
         return
     fi
 
@@ -445,6 +507,7 @@ install_kubectl() {
 
     # kubectl completion
     if command_exists kubectl; then
+        mkdir -p ~/.bash_completion.d
         kubectl completion bash > ~/.bash_completion.d/kubectl_completion 2>/dev/null || true
         # alias k=kubectl with completion
         echo 'alias k=kubectl
@@ -476,6 +539,7 @@ install_helm() {
     fi
 
     if command_exists helm; then
+        mkdir -p ~/.bash_completion.d
         helm completion bash > ~/.bash_completion.d/helm_completion 2>/dev/null || true
     fi
 }
@@ -496,6 +560,20 @@ install_uv() {
     else
         echo "  uv is already installed"
     fi
+
+    # uv (and claude) install into ~/.local/bin — make it discoverable for the
+    # rest of this script run *and* future shells.
+    LOCAL_BIN_CONFIG='# Ensure ~/.local/bin is on PATH (uv, claude, etc.)
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac'
+    update_bashrc_section "LOCAL_BIN_PATH" "$LOCAL_BIN_CONFIG"
+
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) export PATH="$HOME/.local/bin:$PATH" ;;
+    esac
 }
 
 install_bun() {
@@ -522,6 +600,12 @@ install_sdkman() {
     if [ -d "$HOME/.sdkman" ]; then
         echo "  SDKMAN is already installed"
     else
+        # SDKMAN's installer needs both `unzip` and `zip` and aborts noisily if
+        # either is missing — make sure they're present before invoking it so
+        # this step works when run in isolation.
+        if ! command_exists zip || ! command_exists unzip; then
+            sudo apt install -y zip unzip
+        fi
         curl -s "https://get.sdkman.io?rcupdate=false" | bash
     fi
 
@@ -920,8 +1004,13 @@ install_just() {
 }
 
 install_cli_qol() {
-    print_status "Installing btop, tldr, hyperfine"
-    sudo apt install -y btop tldr hyperfine
+    print_status "Installing btop, tldr (tealdeer), hyperfine"
+    # `tldr` package was retired on newer Ubuntu releases; `tealdeer` is the
+    # maintained Rust reimplementation and provides the same `tldr` command.
+    # Install per-package so a single missing candidate doesn't block the rest.
+    for pkg in btop tealdeer hyperfine; do
+        sudo apt install -y "$pkg" || echo "  ⚠️  Failed to install $pkg — continuing"
+    done
     # Seed tldr cache (quiet — failure here is non-fatal)
     command_exists tldr && tldr --update >/dev/null 2>&1 || true
 }
@@ -943,19 +1032,50 @@ install_brave() {
     fi
 }
 
+install_chromium_fallback() {
+    if command_exists chromium || command_exists chromium-browser; then
+        echo "  Chromium is already installed"
+        return
+    fi
+
+    # On Ubuntu 24.04 the apt `chromium-browser` package is a transitional shim
+    # that pulls in the snap anyway, so prefer snap directly when available.
+    if command_exists snap; then
+        sudo snap install chromium
+    else
+        sudo apt install -y chromium-browser \
+            || { echo "  ⚠️  Chromium install failed (no snap, apt package unavailable)"; return 1; }
+    fi
+}
+
 install_edge() {
     print_status "Installing Microsoft Edge"
-    if ! command_exists microsoft-edge; then
-        if [ ! -f /usr/share/keyrings/microsoft.gpg ]; then
-            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
-                | gpg --dearmor | sudo tee /usr/share/keyrings/microsoft.gpg > /dev/null
-        fi
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" \
-            | sudo tee /etc/apt/sources.list.d/microsoft-edge.list > /dev/null
-        sudo apt update && sudo apt install -y microsoft-edge-stable
-    else
+    if command_exists microsoft-edge; then
         echo "  Microsoft Edge is already installed"
+        return
     fi
+
+    # Microsoft only publishes Edge for amd64. On other arches, fall back to
+    # Chromium (closest equivalent) and clean up any stale apt source from a
+    # previous run.
+    local arch
+    arch=$(dpkg --print-architecture)
+    if [ "$arch" != "amd64" ]; then
+        echo "  Microsoft Edge is amd64-only on Linux — falling back to Chromium on $arch"
+        if [ -f /etc/apt/sources.list.d/microsoft-edge.list ]; then
+            sudo rm -f /etc/apt/sources.list.d/microsoft-edge.list
+        fi
+        install_chromium_fallback
+        return
+    fi
+
+    if [ ! -f /usr/share/keyrings/microsoft.gpg ]; then
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/microsoft.gpg > /dev/null
+    fi
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" \
+        | sudo tee /etc/apt/sources.list.d/microsoft-edge.list > /dev/null
+    sudo apt update && sudo apt install -y microsoft-edge-stable
 }
 
 # Creates a .desktop launcher per Edge profile (cpontet, AP, OP).
@@ -1585,6 +1705,7 @@ COMMON_STEPS=(
     install_glab
     install_az
     install_aws
+    install_edge
     install_wrangler
     install_clever_tools
     install_direnv
@@ -1628,7 +1749,6 @@ if ! is_wsl; then
 
     DESKTOP_STEPS=(
         install_brave
-        install_edge
         setup_edge_profile_shortcuts
         install_mullvad_browser
         install_vscode
@@ -1673,7 +1793,7 @@ echo "🎉 Setup completed successfully!"
 echo "=================================================="
 echo ""
 echo "📋 Installed components:"
-echo "   ✓ System packages (git, curl, jq, tree, htop, neofetch, build-essential, python3)"
+echo "   ✓ System packages (git, curl, jq, tree, htop, unzip, zstd, build-essential, python3)"
 echo "   ✓ Podman + podman-compose (with docker alias)"
 echo "   ✓ Starship prompt"
 echo "   ✓ NVM + Node.js LTS + Corepack + pnpm + yarn"
@@ -1683,6 +1803,7 @@ echo "   ✓ GitLab CLI (glab)"
 echo "   ✓ Azure CLI"
 echo "   ✓ AWS CLI"
 echo "   ✓ Cloudflare CLI (Wrangler)"
+echo "   ✓ Microsoft Edge (Chromium browser, arm64-friendly)"
 echo "   ✓ Clever Cloud CLI (clever-tools)"
 echo "   ✓ direnv (auto-load .envrc per project)"
 echo "   ✓ kubectl + k9s (Kubernetes CLI + terminal UI)"
@@ -1703,7 +1824,7 @@ echo "   ✓ .NET SDK 10"
 echo "   ✓ kubectx + kubens + stern (K8s QoL)"
 echo "   ✓ mkcert (local HTTPS CA)"
 echo "   ✓ just (task runner)"
-echo "   ✓ btop, tldr, hyperfine (CLI QoL)"
+echo "   ✓ btop, tldr (tealdeer), hyperfine (CLI QoL)"
 echo "   ✓ Nerd Fonts (FiraCode, JetBrainsMono, Meslo, Hack — with icons)"
 echo "   ✓ Enhanced bash completion for all tools"
 echo "   ✓ Bash aliases (p=pnpm, y=yarn, c=clear, g=git, k=kubectl, pod/docker=podman, bat, fd, lg)"
@@ -1713,7 +1834,7 @@ if ! is_wsl; then
     echo ""
     echo "🖥️  Desktop components:"
     echo "   ✓ Brave browser"
-    echo "   ✓ Microsoft Edge (+ per-profile launchers: cpontet, AP, OP)"
+    echo "   ✓ Microsoft Edge per-profile launchers (cpontet, AP, OP)"
     echo "   ✓ Mullvad Browser"
     echo "   ✓ Visual Studio Code"
     echo "   ✓ Alacritty (GPU-accelerated terminal; managed config auto-launches tmux) — set as default, Ctrl+Alt+T rebound"
